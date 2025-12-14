@@ -97,9 +97,10 @@ The plugin supports **automatic rotation across multiple Google accounts** to wo
 ### How it works
 
 - When you authenticate, you can add multiple Google accounts in one session
-- Requests automatically rotate through accounts using round-robin selection
-- When an account hits a rate limit (429 error), it's marked as temporarily unavailable
+- **Sticky account selection**: The plugin uses the same account for all requests until it hits an error
+- When an account hits a rate limit (429) or server error (500), it's marked as temporarily unavailable
 - The plugin automatically switches to the next available account
+- Rate limit state persists across restarts in `~/.config/opencode/antigravity-accounts.json`
 - If all accounts are rate-limited, you'll get a clear error with wait time
 
 ### Setting up multiple accounts
@@ -149,7 +150,13 @@ opencode auth logout google
 
 Then re-authenticate with `opencode auth login` to set up accounts again.
 
-You can also manually inspect your accounts in `~/.config/opencode/antigravity-accounts.json` (or your platform's equivalent config directory). The legacy `auth.json` is still supported for backward compatibility.
+You can also manually inspect your accounts in `~/.config/opencode/antigravity-accounts.json` (or your platform's equivalent config directory). This file stores:
+- Account emails and refresh tokens
+- Rate limit status (which accounts are rate-limited and when they'll be available)
+- Last switch reason (why each account was selected)
+- Active account index
+
+The `auth.json` now only stores the currently active account's credentials (no longer a concatenated multi-account string).
 
 ### Best practices
 
