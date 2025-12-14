@@ -168,10 +168,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
           const accountManager = new AccountManager(latestAuth);
           const accountCount = accountManager.getAccountCount();
 
-          if (accountCount > 1) {
-            console.log(`[Antigravity] Loaded ${accountCount} accounts for rotation`);
-          }
-
           // Helper to resolve project context
           const resolveProjectContext = async (authRecord: OAuthAuthDetails): Promise<ProjectContextResult> => {
             try {
