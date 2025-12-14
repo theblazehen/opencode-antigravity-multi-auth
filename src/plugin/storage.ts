@@ -10,6 +10,8 @@ export interface AccountMetadata {
   addedAt: number;
   lastUsed: number;
   lastSwitchReason?: "rate-limit" | "initial" | "rotation";
+  isRateLimited?: boolean;
+  rateLimitResetTime?: number;
 }
 
 export interface AccountStorage {

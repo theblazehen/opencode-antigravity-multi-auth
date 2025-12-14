@@ -213,7 +213,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
             const isSwitch = !currentAccount || currentAccount.index !== account.index;
             
             if (isSwitch) {
-              accountManager.markSwitched(account, "initial");
+              // Determine the reason for the switch
+              const switchReason = currentAccount?.isRateLimited ? "rate-limit" : "initial";
+              accountManager.markSwitched(account, switchReason);
               
               await log(client, {
                 level: "info",
@@ -222,7 +224,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   accountIndex: account.index,
                   accountEmail: account.email,
                   accountCount,
-                  reason: "initial",
+                  reason: switchReason,
                 },
               });
               
