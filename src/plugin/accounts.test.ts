@@ -131,5 +131,36 @@ describe("Multi-Account Logic", () => {
       expect(manager.getAccountCount()).toBe(2);
       expect(manager.getAccounts()[0]!.parts.refreshToken).toBe("r2"); // r2 shifted to index 0
     });
+
+    it("getCurrentOrNext sticks to current account when available", () => {
+      // First call should get an account
+      const first = manager.getCurrentOrNext();
+      expect(first?.index).toBe(0);
+
+      // Second call should return the SAME account (sticky behavior)
+      const second = manager.getCurrentOrNext();
+      expect(second?.index).toBe(0);
+
+      // Third call should STILL return the same account
+      const third = manager.getCurrentOrNext();
+      expect(third?.index).toBe(0);
+    });
+
+    it("getCurrentOrNext switches only when current is rate-limited", () => {
+      // Get initial account
+      const first = manager.getCurrentOrNext();
+      expect(first?.index).toBe(0);
+
+      // Mark it as rate-limited
+      manager.markRateLimited(first!, 60000);
+
+      // Next call should switch to account 1
+      const second = manager.getCurrentOrNext();
+      expect(second?.index).toBe(1);
+
+      // Should stick to account 1 now
+      const third = manager.getCurrentOrNext();
+      expect(third?.index).toBe(1);
+    });
   });
 });

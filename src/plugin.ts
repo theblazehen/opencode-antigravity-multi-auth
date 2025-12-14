@@ -189,7 +189,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
           let accountAttempts = 0;
 
           while (accountAttempts < maxAccountAttempts) {
-            const account = accountManager.getNext();
+            const account = accountManager.getCurrentOrNext();
 
             if (!account) {
               // All accounts are rate-limited
@@ -225,6 +225,17 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   reason: "initial",
                 },
               });
+              
+              // Save account switch state
+              try {
+                await accountManager.save();
+              } catch (error) {
+                await log(client, {
+                  level: "warn",
+                  message: "Failed to save account switch state",
+                  extra: { error: error instanceof Error ? error.message : String(error) },
+                });
+              }
             }
 
             // Get auth for this specific account
@@ -341,32 +352,59 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     });
                   }
 
+                  // Save rate limit state
+                  try {
+                    await accountManager.save();
+                  } catch (error) {
+                    await log(client, {
+                      level: "warn",
+                      message: "Failed to save rate limit state",
+                      extra: { error: error instanceof Error ? error.message : String(error) },
+                    });
+                  }
+
                   // Break out of endpoint loop to try next account
                   break;
                 }
                 
-                // Handle server errors (500) on the last endpoint - try next account
+                // Handle server errors (500) on the last endpoint - treat as rate limit
                 if (response.status >= 500 && i === ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1 && accountCount > 1) {
+                  // Treat 500 errors as rate limits with a default timeout
+                  const retryAfterMs = 60000; // 60 seconds default
+                  accountManager.markRateLimited(account, retryAfterMs);
+                  hitRateLimit = true;
+                  
                   await log(client, {
                     level: "warn",
-                    message: `Account ${account.index + 1}/${accountCount} received ${response.status} error on all endpoints, switching...`,
+                    message: `Account ${account.index + 1}/${accountCount} received ${response.status} error on all endpoints, rate-limiting...`,
                     extra: {
                       fromAccountIndex: account.index,
                       fromAccountEmail: account.email,
                       accountCount,
                       status: response.status,
+                      retryAfterMs,
                       reason: "server-error",
                     },
                   });
                   
                   await client.tui.showToast({
                     body: {
-                      message: `Server error on ${account.email || `Account ${account.index + 1}`}. Trying next...`,
+                      message: `Rate limited on ${account.email || `Account ${account.index + 1}`}. Switching...`,
                       variant: "warning",
                     },
                   });
                   
-                  hitRateLimit = true; // Reuse this flag to trigger account switch
+                  // Save rate limit state
+                  try {
+                    await accountManager.save();
+                  } catch (error) {
+                    await log(client, {
+                      level: "warn",
+                      message: "Failed to save rate limit state",
+                      extra: { error: error instanceof Error ? error.message : String(error) },
+                    });
+                  }
+                  
                   break;
                 }
 

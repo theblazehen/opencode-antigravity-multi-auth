@@ -91,7 +91,7 @@ export class AccountManager {
         lastUsed: acc.lastUsed,
         lastSwitchReason: acc.lastSwitchReason,
       })),
-      activeIndex: this.currentIndex % Math.max(1, this.accounts.length),
+      activeIndex: Math.max(0, this.currentAccountIndex),
     };
     
     await saveAccounts(storage);
@@ -120,6 +120,34 @@ export class AccountManager {
    */
   getAccountCount(): number {
     return this.accounts.length;
+  }
+
+  /**
+   * Gets the current account if available, or switches to next available account.
+   * Use this for sticky account selection (only switches on error).
+   * Returns null if all accounts are rate-limited.
+   */
+  getCurrentOrNext(): ManagedAccount | null {
+    // First check if we have a current account that's still usable
+    const current = this.getCurrentAccount();
+    if (current && !current.isRateLimited) {
+      current.lastUsed = Date.now();
+      return current;
+    }
+    
+    // If current is rate-limited or doesn't exist, check if it can be un-limited
+    if (current?.isRateLimited && Date.now() > current.rateLimitResetTime) {
+      current.isRateLimited = false;
+      current.lastUsed = Date.now();
+      return current;
+    }
+    
+    // Need to switch - get next available account and mark it as current
+    const next = this.getNext();
+    if (next) {
+      this.currentAccountIndex = next.index;
+    }
+    return next;
   }
 
   /**
@@ -172,19 +200,20 @@ export class AccountManager {
   }
 
   /**
-   * Serializes all accounts back to OAuthAuthDetails format.
-   * The first account's access/expires are used as the primary tokens.
+   * Serializes only the current active account to OAuthAuthDetails format.
+   * All accounts are stored in antigravity-accounts.json instead.
    */
   toAuthDetails(): OAuthAuthDetails {
-    const multiAccount: MultiAccountRefreshParts = {
-      accounts: this.accounts.map(a => a.parts),
-    };
+    const current = this.getCurrentAccount() || this.accounts[0];
+    if (!current) {
+      throw new Error("No accounts available");
+    }
 
     return {
       type: "oauth",
-      refresh: formatMultiAccountRefresh(multiAccount),
-      access: this.accounts[0]?.access,
-      expires: this.accounts[0]?.expires,
+      refresh: formatRefreshParts(current.parts),
+      access: current.access,
+      expires: current.expires,
     };
   }
 
