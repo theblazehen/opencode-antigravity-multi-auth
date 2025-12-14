@@ -22,6 +22,7 @@ import type {
   GetAuth,
   LoaderResult,
   OAuthAuthDetails,
+  PluginClient,
   PluginContext,
   PluginResult,
   ProjectContextResult,
@@ -34,6 +35,7 @@ import type {
  * Returns null if user cancels.
  */
 async function authenticateSingleAccount(
+  client: PluginClient,
   isHeadless: boolean,
 ): Promise<{ refresh: string; access: string; expires: number; projectId: string; email?: string } | null> {
   let listener: OAuthListener | null = null;
@@ -41,7 +43,7 @@ async function authenticateSingleAccount(
     try {
       listener = await startOAuthListener();
     } catch (error) {
-      console.log("\nWarning: Couldn't start the local callback listener. Falling back to manual copy/paste.");
+      await client.tui.showToast({ body: { message: "Couldn't start callback listener. Falling back to manual copy/paste.", variant: "warning" } });
     }
   }
 
@@ -58,27 +60,27 @@ async function authenticateSingleAccount(
         exec(`xdg-open "${authorization.url}"`);
       }
     } catch (e) {
-      console.log("Could not open browser automatically. Please copy/paste the URL.");
+      await client.tui.showToast({ body: { message: "Could not open browser automatically. Please copy/paste the URL.", variant: "warning" } });
     }
   }
 
   let result: AntigravityTokenExchangeResult;
 
   if (listener) {
-    console.log("\nWaiting for browser authentication...");
+    await client.tui.showToast({ body: { message: "Waiting for browser authentication...", variant: "info" } });
     try {
       const callbackUrl = await listener.waitForCallback();
       const code = callbackUrl.searchParams.get("code");
       const state = callbackUrl.searchParams.get("state");
 
       if (!code || !state) {
-        console.error("Missing code or state in callback URL");
+        await client.tui.showToast({ body: { message: "Missing code or state in callback URL", variant: "error" } });
         return null;
       }
 
       result = await exchangeAntigravity(code, state);
     } catch (error) {
-      console.error("Authentication failed:", error instanceof Error ? error.message : "Unknown error");
+      await client.tui.showToast({ body: { message: `Authentication failed: ${error instanceof Error ? error.message : "Unknown error"}`, variant: "error" } });
       return null;
     } finally {
       try {
@@ -87,7 +89,7 @@ async function authenticateSingleAccount(
     }
   } else {
     // Manual mode
-    console.log(`\nOpen this URL in your browser:\n${authorization.url}\n`);
+    await client.tui.showToast({ body: { message: `Open this URL in your browser: ${authorization.url}`, variant: "info" } });
     const { createInterface } = await import("node:readline/promises");
     const { stdin, stdout } = await import("node:process");
     const rl = createInterface({ input: stdin, output: stdout });
@@ -99,13 +101,13 @@ async function authenticateSingleAccount(
       const state = callbackUrl.searchParams.get("state");
 
       if (!code || !state) {
-        console.error("Missing code or state in callback URL");
+        await client.tui.showToast({ body: { message: "Missing code or state in callback URL", variant: "error" } });
         return null;
       }
 
       result = await exchangeAntigravity(code, state);
     } catch (error) {
-      console.error("Authentication failed:", error instanceof Error ? error.message : "Unknown error");
+      await client.tui.showToast({ body: { message: `Authentication failed: ${error instanceof Error ? error.message : "Unknown error"}`, variant: "error" } });
       return null;
     } finally {
       rl.close();
@@ -113,7 +115,7 @@ async function authenticateSingleAccount(
   }
 
   if (result.type === "failed") {
-    console.error("Authentication failed:", result.error);
+    await client.tui.showToast({ body: { message: `Authentication failed: ${result.error}`, variant: "error" } });
     return null;
   }
 
@@ -276,10 +278,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   hitRateLimit = true;
 
                   if (accountCount > 1) {
-                    console.log(
-                      `[Antigravity] Account ${account.index + 1}/${accountCount} rate-limited ` +
-                      `(retry after ${Math.ceil(retryAfterMs / 1000)}s), switching to next account...`
-                    );
+                    await client.tui.showToast({
+                      body: {
+                        message: `Account ${account.index + 1}/${accountCount} rate-limited (retry after ${Math.ceil(retryAfterMs / 1000)}s), switching to next account...`,
+                        variant: "warning",
+                      },
+                    });
                   }
 
                   // Break out of endpoint loop to try next account
@@ -306,7 +310,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     body: accountManager.toAuthDetails(),
                   });
                 } catch (saveError) {
-                  console.warn("[Antigravity] Failed to save updated auth:", saveError);
+                  await client.tui.showToast({ body: { message: "Failed to save updated auth", variant: "error" } });
                 }
 
                 return transformAntigravityResponse(
@@ -403,12 +407,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
           // Collect multiple accounts
           const accounts: Array<{ refresh: string; access: string; expires: number; projectId: string; email?: string }> = [];
-          
-          console.log("\n🔐 Antigravity Multi-Account Setup");
-          console.log("You can authenticate multiple Google accounts for automatic load balancing.\n");
 
           // Get first account
-          const firstAccount = await authenticateSingleAccount(isHeadless);
+          const firstAccount = await authenticateSingleAccount(client, isHeadless);
           if (!firstAccount) {
             return {
               url: "",
@@ -419,7 +420,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
           }
 
           accounts.push(firstAccount);
-          console.log(`✓ Account 1 authenticated${firstAccount.email ? ` (${firstAccount.email})` : ""}`);
+          await client.tui.showToast({ body: { message: `Account 1 authenticated${firstAccount.email ? ` (${firstAccount.email})` : ""}`, variant: "success" } });
 
           // Ask for additional accounts
           while (accounts.length < 10) { // Reasonable limit
@@ -428,20 +429,16 @@ export const createAntigravityPlugin = (providerId: string) => async (
               break;
             }
 
-            console.log(`\nAuthenticating account ${accounts.length + 1}...`);
-            const nextAccount = await authenticateSingleAccount(isHeadless);
+            const nextAccount = await authenticateSingleAccount(client, isHeadless);
             
             if (!nextAccount) {
-              console.log("Skipping this account...");
+              await client.tui.showToast({ body: { message: "Skipping this account...", variant: "warning" } });
               continue;
             }
 
             accounts.push(nextAccount);
-            console.log(`✓ Account ${accounts.length} authenticated${nextAccount.email ? ` (${nextAccount.email})` : ""}`);
+            await client.tui.showToast({ body: { message: `Account ${accounts.length} authenticated${nextAccount.email ? ` (${nextAccount.email})` : ""}`, variant: "success" } });
           }
-
-          // Combine all refresh tokens
-          console.log(`\n✨ Configured ${accounts.length} account(s) for load balancing!`);
 
           const refreshParts: RefreshParts[] = accounts.map(acc => ({
             refreshToken: acc.refresh,
