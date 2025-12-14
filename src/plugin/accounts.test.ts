@@ -20,9 +20,9 @@ describe("Multi-Account Logic", () => {
       const refresh = "r1|p1||r2|p2||r3|p3|m3";
       const result = parseMultiAccountRefresh(refresh);
       expect(result.accounts).toHaveLength(3);
-      expect(result.accounts[0].refreshToken).toBe("r1");
-      expect(result.accounts[1].refreshToken).toBe("r2");
-      expect(result.accounts[2].managedProjectId).toBe("m3");
+      expect(result.accounts[0]?.refreshToken).toBe("r1");
+      expect(result.accounts[1]?.refreshToken).toBe("r2");
+      expect(result.accounts[2]?.managedProjectId).toBe("m3");
     });
 
     it("formats multiple accounts correctly", () => {
@@ -54,8 +54,8 @@ describe("Multi-Account Logic", () => {
     it("initializes with multiple accounts", () => {
       expect(manager.getAccountCount()).toBe(2);
       const accounts = manager.getAccounts();
-      expect(accounts[0].access).toBe("access1"); // First one gets the access token
-      expect(accounts[1].access).toBeUndefined(); // Second one needs refresh
+      expect(accounts[0]!.access).toBe("access1"); // First one gets the access token
+      expect(accounts[1]!.access).toBeUndefined(); // Second one needs refresh
     });
 
     it("rotates accounts round-robin", () => {
@@ -108,7 +108,7 @@ describe("Multi-Account Logic", () => {
       // Since we waited, it should pass.
       // However, rotation might pick index 1 first. Let's limit index 1 too to be sure.
       
-      const acc2 = manager.getAccounts()[1];
+      const acc2 = manager.getAccounts()[1]!;
       manager.markRateLimited(acc2, 60000); // Limit account 1 long time
 
       const available = manager.getNext();
@@ -116,7 +116,7 @@ describe("Multi-Account Logic", () => {
     });
 
     it("updates account tokens correctly", () => {
-      const acc = manager.getAccounts()[1];
+      const acc = manager.getAccounts()[1]!;
       manager.updateAccount(acc, "new_access", 2000);
       
       expect(acc.access).toBe("new_access");
@@ -129,7 +129,7 @@ describe("Multi-Account Logic", () => {
 
       manager.removeAccount(0);
       expect(manager.getAccountCount()).toBe(2);
-      expect(manager.getAccounts()[0].parts.refreshToken).toBe("r2"); // r2 shifted to index 0
+      expect(manager.getAccounts()[0]!.parts.refreshToken).toBe("r2"); // r2 shifted to index 0
     });
   });
 });
