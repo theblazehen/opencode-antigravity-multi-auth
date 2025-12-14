@@ -18,6 +18,8 @@ import {
 } from "./plugin/request";
 import { refreshAccessToken } from "./plugin/token";
 import { startOAuthListener, type OAuthListener } from "./plugin/server";
+import { log } from "./plugin/logger";
+import { loadAccounts, saveAccounts } from "./plugin/storage";
 import type {
   GetAuth,
   LoaderResult,
@@ -166,8 +168,11 @@ export const createAntigravityPlugin = (providerId: string) => async (
             return fetch(input, init);
           }
 
+          // Load account storage for email metadata
+          const storedAccounts = await loadAccounts();
+          
           // Initialize AccountManager to handle multiple accounts
-          const accountManager = new AccountManager(latestAuth);
+          const accountManager = new AccountManager(latestAuth, storedAccounts);
           const accountCount = accountManager.getAccountCount();
 
           // Helper to resolve project context
@@ -190,10 +195,36 @@ export const createAntigravityPlugin = (providerId: string) => async (
               // All accounts are rate-limited
               const waitTimeMs = accountManager.getMinWaitTime();
               const waitTimeSec = Math.ceil(waitTimeMs / 1000);
+              
+              await log(client, {
+                level: "error",
+                message: `All ${accountCount} account(s) are rate-limited`,
+                extra: { accountCount, waitTimeSec },
+              });
+              
               throw new Error(
                 `All ${accountCount} account(s) are rate-limited. ` +
                 `Please wait ${waitTimeSec}s or add more accounts via 'opencode auth login'.`
               );
+            }
+            
+            // Check if this is a new account switch
+            const currentAccount = accountManager.getCurrentAccount();
+            const isSwitch = !currentAccount || currentAccount.index !== account.index;
+            
+            if (isSwitch) {
+              accountManager.markSwitched(account, "initial");
+              
+              await log(client, {
+                level: "info",
+                message: `Using account ${account.index + 1}/${accountCount}${account.email ? ` (${account.email})` : ''}`,
+                extra: {
+                  accountIndex: account.index,
+                  accountEmail: account.email,
+                  accountCount,
+                  reason: "initial",
+                },
+              });
             }
 
             // Get auth for this specific account
@@ -209,6 +240,18 @@ export const createAntigravityPlugin = (providerId: string) => async (
               authRecord = refreshed;
               const parts = parseRefreshParts(refreshed.refresh);
               accountManager.updateAccount(account, refreshed.access!, refreshed.expires!, parts);
+              
+              // Save updated account state
+              try {
+                await accountManager.save();
+              } catch (error) {
+                // Log but don't fail the request
+                await log(client, {
+                  level: "warn",
+                  message: "Failed to save account state after token refresh",
+                  extra: { error: error instanceof Error ? error.message : String(error) },
+                });
+              }
             }
 
             const accessToken = authRecord.access;
@@ -278,15 +321,52 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   hitRateLimit = true;
 
                   if (accountCount > 1) {
+                    await log(client, {
+                      level: "info",
+                      message: `Account ${account.index + 1}/${accountCount} rate-limited, switching...`,
+                      extra: {
+                        fromAccountIndex: account.index,
+                        fromAccountEmail: account.email,
+                        accountCount,
+                        retryAfterMs,
+                        reason: "rate-limit",
+                      },
+                    });
+                    
                     await client.tui.showToast({
                       body: {
-                        message: `Account ${account.index + 1}/${accountCount} rate-limited (retry after ${Math.ceil(retryAfterMs / 1000)}s), switching to next account...`,
+                        message: `Rate limited on ${account.email || `Account ${account.index + 1}`}. Switching...`,
                         variant: "warning",
                       },
                     });
                   }
 
                   // Break out of endpoint loop to try next account
+                  break;
+                }
+                
+                // Handle server errors (500) on the last endpoint - try next account
+                if (response.status >= 500 && i === ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1 && accountCount > 1) {
+                  await log(client, {
+                    level: "warn",
+                    message: `Account ${account.index + 1}/${accountCount} received ${response.status} error on all endpoints, switching...`,
+                    extra: {
+                      fromAccountIndex: account.index,
+                      fromAccountEmail: account.email,
+                      accountCount,
+                      status: response.status,
+                      reason: "server-error",
+                    },
+                  });
+                  
+                  await client.tui.showToast({
+                    body: {
+                      message: `Server error on ${account.email || `Account ${account.index + 1}`}. Trying next...`,
+                      variant: "warning",
+                    },
+                  });
+                  
+                  hitRateLimit = true; // Reuse this flag to trigger account switch
                   break;
                 }
 
@@ -305,11 +385,20 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
                 // Success or final endpoint attempt - save updated auth and return
                 try {
+                  // Save to OpenCode auth.json
                   await client.auth.set({
                     path: { id: providerId },
                     body: accountManager.toAuthDetails(),
                   });
+                  
+                  // Save to custom storage (preserves emails and metadata)
+                  await accountManager.save();
                 } catch (saveError) {
+                  await log(client, {
+                    level: "error",
+                    message: "Failed to save updated auth",
+                    extra: { error: saveError instanceof Error ? saveError.message : String(saveError) },
+                  });
                   await client.tui.showToast({ body: { message: "Failed to save updated auth", variant: "error" } });
                 }
 
@@ -447,6 +536,25 @@ export const createAntigravityPlugin = (providerId: string) => async (
           }));
 
           const combinedRefresh = formatMultiAccountRefresh({ accounts: refreshParts });
+          
+          // Save to custom storage with emails
+          try {
+            await saveAccounts({
+              version: 1,
+              accounts: accounts.map((acc, index) => ({
+                email: acc.email,
+                refreshToken: acc.refresh,
+                projectId: acc.projectId,
+                managedProjectId: undefined,
+                addedAt: Date.now(),
+                lastUsed: index === 0 ? Date.now() : 0,
+              })),
+              activeIndex: 0,
+            });
+          } catch (error) {
+            // Log but don't fail authentication if storage fails
+            console.error("[antigravity-auth] Failed to save account metadata:", error);
+          }
 
           // Return a dummy authorization that immediately returns success with combined tokens
           const firstAcc = accounts[0]!;

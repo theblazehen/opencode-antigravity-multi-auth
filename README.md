@@ -149,7 +149,7 @@ opencode auth logout google
 
 Then re-authenticate with `opencode auth login` to set up accounts again.
 
-You can also manually inspect your accounts in `~/.local/share/opencode/auth.json` (the `refresh` field contains all account tokens separated by `||`).
+You can also manually inspect your accounts in `~/.config/opencode/antigravity-accounts.json` (or your platform's equivalent config directory). The legacy `auth.json` is still supported for backward compatibility.
 
 ### Best practices
 
@@ -158,15 +158,21 @@ You can also manually inspect your accounts in `~/.local/share/opencode/auth.jso
 - The plugin automatically handles token refresh for all accounts
 - No configuration needed - just authenticate and it works!
 
-## Debugging
+## Logging & Debugging
 
-Enable verbose logging:
+### Operational Logs
+The plugin automatically logs important events (account switches, rate limits, errors) to the standard Opencode logs.
+- **Location:** `~/.local/share/opencode/log/` (or platform equivalent)
+- **Service Name:** `antigravity-auth`
+
+### Debug Tracing
+For detailed request/response tracing (headers, payloads):
 
 ```bash
 export OPENCODE_ANTIGRAVITY_DEBUG=1
 ```
 
-Logs are written to the current directory (e.g., `antigravity-debug-<timestamp>.log`).
+These verbose debug logs are written to the **current working directory** (e.g., `antigravity-debug-<timestamp>.log`).
 
 ## Development
 

@@ -5,6 +5,7 @@ import {
   parseRefreshParts,
   formatRefreshParts,
 } from "./auth";
+import { loadAccounts, saveAccounts, migrateFromRefreshString, type AccountStorage } from "./storage";
 
 export interface ManagedAccount {
   index: number;
@@ -14,6 +15,8 @@ export interface ManagedAccount {
   isRateLimited: boolean;
   rateLimitResetTime: number;
   lastUsed: number;
+  email?: string;
+  lastSwitchReason?: "rate-limit" | "initial" | "rotation";
 }
 
 /**
@@ -22,33 +25,94 @@ export interface ManagedAccount {
 export class AccountManager {
   private accounts: ManagedAccount[] = [];
   private currentIndex = 0;
+  private currentAccountIndex = -1; // Track which account is currently in use
 
-  constructor(auth: OAuthAuthDetails) {
-    const multiAccount = parseMultiAccountRefresh(auth.refresh);
-
-    // If we parsed multiple accounts, use them
-    if (multiAccount.accounts.length > 0) {
-      this.accounts = multiAccount.accounts.map((parts, index) => ({
+  constructor(auth: OAuthAuthDetails, storedAccounts?: AccountStorage | null) {
+    // Try loading from custom storage first
+    if (storedAccounts && storedAccounts.accounts.length > 0) {
+      // Load from custom storage (preferred - includes emails)
+      this.accounts = storedAccounts.accounts.map((acc, index) => ({
         index,
-        parts,
+        parts: {
+          refreshToken: acc.refreshToken,
+          projectId: acc.projectId,
+          managedProjectId: acc.managedProjectId,
+        },
         access: index === 0 ? auth.access : undefined,
         expires: index === 0 ? auth.expires : undefined,
         isRateLimited: false,
         rateLimitResetTime: 0,
-        lastUsed: 0,
+        lastUsed: acc.lastUsed,
+        email: acc.email,
+        lastSwitchReason: acc.lastSwitchReason,
       }));
+      this.currentIndex = storedAccounts.activeIndex || 0;
     } else {
-      // Fallback: treat as single account
-      this.accounts.push({
-        index: 0,
-        parts: parseRefreshParts(auth.refresh),
-        access: auth.access,
-        expires: auth.expires,
-        isRateLimited: false,
-        rateLimitResetTime: 0,
-        lastUsed: 0,
-      });
+      // Fall back to parsing from auth.refresh (multi-account format)
+      const multiAccount = parseMultiAccountRefresh(auth.refresh);
+
+      if (multiAccount.accounts.length > 0) {
+        this.accounts = multiAccount.accounts.map((parts, index) => ({
+          index,
+          parts,
+          access: index === 0 ? auth.access : undefined,
+          expires: index === 0 ? auth.expires : undefined,
+          isRateLimited: false,
+          rateLimitResetTime: 0,
+          lastUsed: 0,
+        }));
+      } else {
+        // Fallback: treat as single account
+        this.accounts.push({
+          index: 0,
+          parts: parseRefreshParts(auth.refresh),
+          access: auth.access,
+          expires: auth.expires,
+          isRateLimited: false,
+          rateLimitResetTime: 0,
+          lastUsed: 0,
+        });
+      }
     }
+  }
+  
+  /**
+   * Save accounts to custom storage file.
+   */
+  async save(): Promise<void> {
+    const storage: AccountStorage = {
+      version: 1,
+      accounts: this.accounts.map(acc => ({
+        email: acc.email,
+        refreshToken: acc.parts.refreshToken,
+        projectId: acc.parts.projectId,
+        managedProjectId: acc.parts.managedProjectId,
+        addedAt: acc.lastUsed || Date.now(),
+        lastUsed: acc.lastUsed,
+        lastSwitchReason: acc.lastSwitchReason,
+      })),
+      activeIndex: this.currentIndex % Math.max(1, this.accounts.length),
+    };
+    
+    await saveAccounts(storage);
+  }
+  
+  /**
+   * Get the currently active account.
+   */
+  getCurrentAccount(): ManagedAccount | null {
+    if (this.currentAccountIndex >= 0 && this.currentAccountIndex < this.accounts.length) {
+      return this.accounts[this.currentAccountIndex] ?? null;
+    }
+    return null;
+  }
+  
+  /**
+   * Mark that we've switched to a specific account.
+   */
+  markSwitched(account: ManagedAccount, reason: "rate-limit" | "initial" | "rotation"): void {
+    account.lastSwitchReason = reason;
+    this.currentAccountIndex = account.index;
   }
 
   /**
@@ -127,7 +191,7 @@ export class AccountManager {
   /**
    * Adds a new account to the pool.
    */
-  addAccount(parts: RefreshParts, access?: string, expires?: number): void {
+  addAccount(parts: RefreshParts, access?: string, expires?: number, email?: string): void {
     this.accounts.push({
       index: this.accounts.length,
       parts,
@@ -136,6 +200,7 @@ export class AccountManager {
       isRateLimited: false,
       rateLimitResetTime: 0,
       lastUsed: 0,
+      email,
     });
   }
 

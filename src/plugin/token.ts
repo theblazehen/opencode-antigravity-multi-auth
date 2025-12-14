@@ -1,11 +1,11 @@
 import {
   ANTIGRAVITY_CLIENT_ID,
   ANTIGRAVITY_CLIENT_SECRET,
-  ANTIGRAVITY_PROVIDER_ID,
 } from "../constants";
 import { formatRefreshParts, parseRefreshParts } from "./auth";
-import { clearCachedAuth, storeCachedAuth } from "./cache";
+import { storeCachedAuth } from "./cache";
 import { invalidateProjectContextCache } from "./project";
+import { log } from "./logger";
 import type { OAuthAuthDetails, PluginClient, RefreshParts } from "./types";
 
 interface OAuthErrorPayload {
@@ -96,12 +96,20 @@ export async function refreshAccessToken(
       const { code, description } = parseOAuthErrorPayload(errorText);
       const details = [code, description ?? errorText].filter(Boolean).join(": ");
       const baseMessage = `Antigravity token refresh failed (${response.status} ${response.statusText})`;
-      console.warn(`[Antigravity OAuth] ${details ? `${baseMessage} - ${details}` : baseMessage}`);
+      
+      await log(client, {
+        level: "warn",
+        message: baseMessage,
+        extra: { code, description, details, status: response.status },
+      });
 
       if (code === "invalid_grant") {
-        console.warn(
-          "[Antigravity OAuth] Google revoked the stored refresh token. Run `opencode auth login` and reauthenticate the Google provider.",
-        );
+        await log(client, {
+          level: "error",
+          message: "Google revoked the stored refresh token. Run `opencode auth login` and reauthenticate the Google provider.",
+          extra: { providerId },
+        });
+        
         invalidateProjectContextCache(auth.refresh);
         try {
           const clearedAuth: OAuthAuthDetails = {
@@ -117,7 +125,11 @@ export async function refreshAccessToken(
             body: clearedAuth,
           });
         } catch (storeError) {
-          console.error("Failed to clear stored Antigravity OAuth credentials:", storeError);
+          await log(client, {
+            level: "error",
+            message: "Failed to clear stored Antigravity OAuth credentials",
+            extra: { error: storeError instanceof Error ? storeError.message : String(storeError) },
+          });
         }
       }
 
@@ -146,18 +158,18 @@ export async function refreshAccessToken(
     storeCachedAuth(updatedAuth);
     invalidateProjectContextCache(auth.refresh);
 
-    try {
-      await client.auth.set({
-        path: { id: providerId },
-        body: updatedAuth,
-      });
-    } catch (storeError) {
-      console.error("Failed to persist refreshed Antigravity OAuth credentials:", storeError);
-    }
+    // NOTE: We don't save to client.auth.set here because it would overwrite
+    // the multi-account refresh string with just this single account.
+    // The caller (plugin.ts) handles saving via accountManager.toAuthDetails()
+    // which properly preserves all accounts.
 
     return updatedAuth;
   } catch (error) {
-    console.error("Failed to refresh Antigravity access token due to an unexpected error:", error);
+    await log(client, {
+      level: "error",
+      message: "Failed to refresh Antigravity access token due to an unexpected error",
+      extra: { error: error instanceof Error ? error.message : String(error) },
+    });
     return undefined;
   }
 }

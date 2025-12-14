@@ -33,4 +33,7 @@ antigravity-debug-*.log
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Local directories
 nodemod
+ref_repos

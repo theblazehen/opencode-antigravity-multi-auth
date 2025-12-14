@@ -58,6 +58,16 @@ export interface PluginClient {
       };
     }): Promise<unknown>;
   };
+  app: {
+    log(options: {
+      body: {
+        service: string;
+        level: "debug" | "info" | "error" | "warn";
+        message: string;
+        extra?: { [key: string]: unknown };
+      };
+    }): Promise<unknown>;
+  };
 }
 
 export interface PluginContext {
