@@ -90,6 +90,74 @@ Add Antigravity models under the `provider.google.models` section of your config
 opencode run "Hello world" --model=google/gemini-3-pro-high
 ```
 
+## Multi-Account Load Balancing
+
+The plugin supports **automatic rotation across multiple Google accounts** to work around rate limits.
+
+### How it works
+
+- When you authenticate, you can add multiple Google accounts in one session
+- Requests automatically rotate through accounts using round-robin selection
+- When an account hits a rate limit (429 error), it's marked as temporarily unavailable
+- The plugin automatically switches to the next available account
+- If all accounts are rate-limited, you'll get a clear error with wait time
+
+### Setting up multiple accounts
+
+**⚠️ Note:** Multi-account setup requires using the **CLI** (not TUI). Run this in your terminal:
+
+```bash
+opencode auth login
+# Choose Google → OAuth with Google (Antigravity)
+
+🔐 Antigravity Multi-Account Setup
+You can authenticate multiple Google accounts for automatic load balancing.
+
+# Browser opens for first account
+✓ Account 1 authenticated (user1@gmail.com)
+
+Add another account? (y/n): y
+
+# Browser opens for second account
+Authenticating account 2...
+✓ Account 2 authenticated (user2@gmail.com)
+
+Add another account? (y/n): y
+
+# Browser opens for third account
+Authenticating account 3...
+✓ Account 3 authenticated (user3@gmail.com)
+
+Add another account? (y/n): n
+
+✨ Configured 3 account(s) for load balancing!
+```
+
+**The plugin will log when using multiple accounts:**
+```
+[Antigravity] Loaded 3 accounts for rotation
+[Antigravity] Account 1/3 rate-limited (retry after 60s), switching to next account...
+```
+
+### Managing accounts
+
+To remove all accounts and start fresh:
+```bash
+# This will clear all stored accounts
+opencode auth logout google
+```
+
+Then re-authenticate with `opencode auth login` to set up accounts again.
+
+You can also manually inspect your accounts in `~/.local/share/opencode/auth.json` (the `refresh` field contains all account tokens separated by `||`).
+
+### Best practices
+
+- **2-3 accounts** is usually sufficient for most use cases
+- Use different Google accounts (personal, work, etc.)
+- The plugin automatically handles token refresh for all accounts
+- No configuration needed - just authenticate and it works!
+
 ## Debugging
 
 Enable verbose logging:

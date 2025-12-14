@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+import * as crypto from "node:crypto";
 import {
   ANTIGRAVITY_HEADERS,
   ANTIGRAVITY_ENDPOINT,
