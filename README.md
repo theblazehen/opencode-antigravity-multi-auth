@@ -189,18 +189,6 @@ npm install
 
 ## Safety, usage, and risk notices
 
-### Intended use
-
-- Personal / internal development only
-- Respect internal quotas and data handling policies
-- Not for production services or bypassing intended limits
-
-### Not suitable for
-
-- Production application traffic
-- High-volume automated extraction
-- Any use that violates Acceptable Use Policies
-
 ### ⚠️ Warning (assumption of risk)
 
 By using this plugin, you acknowledge and accept the following:
