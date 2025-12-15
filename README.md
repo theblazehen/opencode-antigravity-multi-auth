@@ -1,4 +1,4 @@
-# Antigravity OAuth Plugin for Opencode
+# Antigravity multi-account OAuth Plugin for Opencode
 
 [![npm version](https://img.shields.io/npm/v/opencode-antigravity-auth.svg)](https://www.npmjs.com/package/opencode-antigravity-auth)
 
@@ -32,7 +32,7 @@ Enable Opencode to authenticate against **Antigravity** (Google's IDE) via OAuth
 Add Antigravity models under the `provider.google.models` section of your config:
 ```json
 {
-  "plugin": ["opencode-antigravity-auth"],
+  "plugin": ["opencode-antigravity-multi-auth"],
   "provider": {
     "google": {
       "models": {
